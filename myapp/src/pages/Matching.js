@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import MatchingRoom from './MatchingRoom';
 import styled, { keyframes } from '@emotion/styled';
 import { keyframes as kf } from '@emotion/react';
+import { getMissions, createMatch, getMyActiveMatch, CURRENT_USER_ID } from '../api';
 
 /* ─── 활동별 SVG 아이콘 ─── */
 const ICONS = {
@@ -53,15 +54,15 @@ const ICONS = {
     ),
 };
 
-/* ─── 임시 데이터 (참여 인원 2~4명) ─── */
 const ACTIVITY_TYPES = ['전체', '텀블러', '쓰레기 줍기', '분리수거', '플로깅', '해안 정화'];
-const MOCK_CHALLENGES = [
-    { id: 1, name: '텀블러 사용하기',   desc: '현재 4명이 함께 하고 있어요', type: '텀블러',    icon: ICONS.tumbler  },
-    { id: 2, name: '쓰레기 줍기',      desc: '현재 2명이 함께 하고 있어요', type: '쓰레기 줍기', icon: ICONS.trash    },
-    { id: 3, name: '분리수거 실천하기', desc: '현재 3명이 함께 하고 있어요', type: '분리수거',   icon: ICONS.recycle  },
-    { id: 4, name: '플로깅 챌린지',    desc: '현재 2명이 함께 하고 있어요', type: '플로깅',    icon: ICONS.plogging },
-    { id: 5, name: '해안 정화 활동',   desc: '현재 4명이 함께 하고 있어요', type: '해안 정화',  icon: ICONS.ocean    },
-];
+
+const TYPE_TO_ICON = {
+    '텀블러':     ICONS.tumbler,
+    '쓰레기 줍기': ICONS.trash,
+    '분리수거':   ICONS.recycle,
+    '플로깅':     ICONS.plogging,
+    '해안 정화':  ICONS.ocean,
+};
 
 /* ─── 애니메이션 ─── */
 const pulseRing = kf`
@@ -295,33 +296,101 @@ const CancelBtn = styled.button`
 
 /* ─── 컴포넌트 ─── */
 export default function Matching() {
+    const [initializing, setInitializing]   = useState(true);
     const [selectedType, setSelectedType]   = useState('전체');
+    const [challenges, setChallenges]       = useState([]);
+    const [loading, setLoading]             = useState(true);
     const [joinedIds, setJoinedIds]         = useState([]);
     const [matchingItem, setMatchingItem]   = useState(null);
     const [matchDone, setMatchDone]         = useState(false);
     const [roomItem, setRoomItem]           = useState(null);
+    const [currentMatchId, setCurrentMatchId] = useState(null);
 
-    const filtered = selectedType === '전체'
-        ? MOCK_CHALLENGES
-        : MOCK_CHALLENGES.filter(c => c.type === selectedType);
+    // 마운트 시 활성 매치 확인 — 있으면 바로 매칭룸으로 진입
+    // initializing이 true인 동안은 미션 목록을 렌더링하지 않아 깜빡임 방지
+    useEffect(() => {
+        getMyActiveMatch()
+            .then(match => {
+                if (!match) return;
+                setRoomItem({
+                    id: match.mission_id,
+                    name: match.mission_title,
+                    type: match.mission_type,
+                    icon: TYPE_TO_ICON[match.mission_type] || null,
+                    matchId: match.id,
+                });
+                setJoinedIds(prev => [...prev, match.mission_id]);
+            })
+            .catch(() => {})
+            .finally(() => setInitializing(false));
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const handleJoin = (challenge) => {
+    // 미션 목록 API 호출 + 5초마다 참여 인원 수 갱신
+    useEffect(() => {
+        const type = selectedType === '전체' ? null : selectedType;
+
+        const fetchMissions = (showLoading = false) => {
+            if (showLoading) setLoading(true);
+            getMissions(type)
+                .then(data => {
+                    setChallenges(data.map(m => ({
+                        id: m.id,
+                        name: m.title,
+                        desc: `현재 ${m.current_participants}명이 함께 하고 있어요`,
+                        type: m.type,
+                        icon: TYPE_TO_ICON[m.type] || null,
+                    })));
+                })
+                .catch(() => {})
+                .finally(() => { if (showLoading) setLoading(false); });
+        };
+
+        fetchMissions(true);
+        const interval = setInterval(() => fetchMissions(false), 5000);
+        return () => clearInterval(interval);
+    }, [selectedType]);
+
+    const handleJoin = async (challenge) => {
         setMatchingItem(challenge);
         setMatchDone(false);
-        setTimeout(() => setMatchDone(true), 2500);
+        try {
+            const match = await createMatch(challenge.id);
+            setCurrentMatchId(match.id);
+            setMatchDone(true);
+        } catch (e) {
+            // 이미 참여 중이면 에러 대신 해당 매치로 바로 진입
+            if (e.message === '이미 이 미션에 참여 중입니다.') {
+                const active = await getMyActiveMatch().catch(() => null);
+                if (active) {
+                    setMatchingItem(null);
+                    setRoomItem({
+                        id: active.mission_id,
+                        name: active.mission_title,
+                        type: active.mission_type,
+                        icon: TYPE_TO_ICON[active.mission_type] || null,
+                        matchId: active.id,
+                    });
+                    return;
+                }
+            }
+            setMatchingItem(null);
+        }
     };
 
     const handleCancel = () => {
         setMatchingItem(null);
         setMatchDone(false);
+        setCurrentMatchId(null);
     };
 
     const handleConfirm = () => {
         setJoinedIds(prev => [...prev, matchingItem.id]);
-        setRoomItem(matchingItem);
+        setRoomItem({ ...matchingItem, matchId: currentMatchId });
         setMatchingItem(null);
         setMatchDone(false);
     };
+
+    if (initializing) return null; // 활성 매치 확인 전엔 아무것도 렌더링하지 않음
 
     if (roomItem) {
         return (
@@ -391,16 +460,20 @@ export default function Matching() {
                     <Section>
                         <SectionHeader>
                             <h3>현재 진행 중인 활동</h3>
-                            <p>총 {filtered.length}개의 활동</p>
+                            <p>총 {challenges.length}개의 활동</p>
                         </SectionHeader>
 
-                        {filtered.length === 0 ? (
+                        {loading ? (
+                            <EmptyState>
+                                <p>불러오는 중...</p>
+                            </EmptyState>
+                        ) : challenges.length === 0 ? (
                             <EmptyState>
                                 <p>😢 진행 중인 활동이 없어요</p>
                                 <span>다른 유형으로 필터를 바꿔보세요</span>
                             </EmptyState>
                         ) : (
-                            filtered.map(challenge => (
+                            challenges.map(challenge => (
                                 <ActivityCard key={challenge.id}>
                                     <IconCircle>{challenge.icon}</IconCircle>
                                     <ActivityInfo>
@@ -411,7 +484,7 @@ export default function Matching() {
                                         joined={joinedIds.includes(challenge.id)}
                                         onClick={() => {
                                             if (joinedIds.includes(challenge.id)) {
-                                                setRoomItem(challenge);
+                                                setRoomItem(challenges.find(c => c.id === challenge.id));
                                             } else {
                                                 handleJoin(challenge);
                                             }

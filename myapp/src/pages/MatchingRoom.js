@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Authorize from './Authorize';
 import styled from '@emotion/styled';
 import { keyframes } from '@emotion/react';
+import { getMatch, leaveMatch, CURRENT_USER_ID } from '../api';
 
 /* ─── 애니메이션 ─── */
 const fadeSlideUp = keyframes`
@@ -21,12 +22,23 @@ const STATUS = {
     completed: { label: '실천 완료!', color: '#2E7D32', bg: '#E8F5E9', dot: '#4CAF50' },
 };
 
-/* ─── 임시 참여자 데이터 ─── */
-const MOCK_MEMBERS = [
-    { id: 1, name: '부지런한 북극곰', avatar: '🐻‍❄️', status: 'waiting',   time: '오후 2:14' },
-    { id: 2, name: '나',             avatar: '🙋',    status: 'waiting',   time: '오후 2:14', isMe: true },
-    { id: 3, name: '올찬 고양이',    avatar: '🐱',    status: 'completed', time: '오후 2:31' },
-];
+const AVATARS = ['🐻‍❄️', '🐱', '🦊', '🐨', '🐸', '🐧'];
+
+function formatTime(isoString) {
+    if (!isoString) return '';
+    return new Date(isoString).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function participantsToMembers(participants) {
+    return participants.map((p, i) => ({
+        id: p.user_id,
+        name: p.username,
+        avatar: p.user_id === CURRENT_USER_ID ? '🙋' : AVATARS[i % AVATARS.length],
+        status: 'waiting',
+        time: formatTime(p.joined_at),
+        isMe: p.user_id === CURRENT_USER_ID,
+    }));
+}
 
 /* ─── 스타일 ─── */
 const Page = styled.div`
@@ -278,21 +290,25 @@ const ModalBtn = styled.button`
 
 /* ─── 컴포넌트 ─── */
 export default function MatchingRoom({ activity, onBack, onEnd }) {
-    const [members, setMembers] = useState(MOCK_MEMBERS);
+    const matchId = activity?.matchId;
+    const [members, setMembers] = useState([]);
     const [showConfirm, setShowConfirm] = useState(false);
     const [showAuthorize, setShowAuthorize] = useState(false);
 
-    const handleCertify = () => {
-        // 내 상태를 '실천 시작!'으로 변경 (추후 이미지 업로드 연동)
-        setMembers(prev =>
-            prev.map(m =>
-                m.isMe
-                    ? { ...m, status: m.status === 'waiting' ? 'started' : 'completed', time: '오후 2:35' }
-                    : m
-            )
-        );
-        alert('📸 이미지 업로드는 백엔드 연동 후 구현 예정이에요!');
-    };
+    // 매치 참여자 데이터 불러오기 + 3초마다 폴링으로 실시간 반영
+    useEffect(() => {
+        if (!matchId) return;
+
+        const fetchMembers = () => {
+            getMatch(matchId)
+                .then(data => setMembers(participantsToMembers(data.participants)))
+                .catch(() => {});
+        };
+
+        fetchMembers();
+        const interval = setInterval(fetchMembers, 3000);
+        return () => clearInterval(interval);
+    }, [matchId]);
 
     const myStatus = members.find(m => m.isMe)?.status;
     const completedCount = members.filter(m => m.status === 'completed').length;
@@ -377,7 +393,11 @@ export default function MatchingRoom({ activity, onBack, onEnd }) {
                         <ModalTitle>{'정말로 활동을 종료하겠습니까?'}
                             </ModalTitle>
                             <ModalBtnRow>
-                            <ModalBtn onClick={() => { setShowConfirm(false); onEnd(); }}>
+                            <ModalBtn onClick={async () => {
+                                setShowConfirm(false);
+                                if (matchId) await leaveMatch(matchId).catch(() => {});
+                                onEnd();
+                            }}>
                             네
                             </ModalBtn>
                             <ModalBtn confirm onClick={() => setShowConfirm(false)}>
