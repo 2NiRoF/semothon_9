@@ -362,10 +362,7 @@ export default function MatchingRoom({ activity, onBack, onEnd }) {
 
             {/* ── 하단 인증 툴바 ── */}
             <Toolbar>
-                <CertifyBtn
-                    onClick={() => myStatus !== 'completed' && setShowAuthorize(true)}
-                    disabled={myStatus === 'completed'}
-                >
+                <CertifyBtn onClick={() => setShowAuthorize(true)}>
                     {myStatus === 'completed' ? '✅ 실천 완료!' : '📸 내 실천 인증하기'}
                 </CertifyBtn>
             </Toolbar>

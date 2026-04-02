@@ -191,6 +191,7 @@ const HiddenInput = styled.input`
 /* ─── 컴포넌트 ─── */
 export default function Authorize({ onBack, onSubmit }) {
   const [selectedImage, setSelectedImage] = useState(null);
+  const [submitted, setSubmitted] = useState(false);
   const fileInputRef = useRef(null);
 
   const handleFileChange = (e) => {
@@ -208,8 +209,14 @@ export default function Authorize({ onBack, onSubmit }) {
       return;
     }
     // TODO: API 연동 — FormData로 이미지 업로드
-    alert('인증 사진이 제출되었습니다. 검토 후 승인됩니다. ✅');
-    onSubmit?.();   // 부모(MatchingRoom)에게 완료 알림
+    setSubmitted(true);
+    onSubmit?.();   // 부모(MatchingRoom)에게 완료 알림 (상태 업데이트)
+  };
+
+  const handleChangePhoto = () => {
+    setSubmitted(false);
+    setSelectedImage(null);
+    setTimeout(() => fileInputRef.current?.click(), 50);
   };
 
   return (
@@ -228,12 +235,31 @@ export default function Authorize({ onBack, onSubmit }) {
 
         {/* ── 본문 ── */}
         <Body>
-          <Subtitle>오늘의 실천을 인증해주세요.</Subtitle>
+          <Subtitle>{submitted ? '인증 대기 중입니다..' : '오늘의 실천을 인증해주세요.'}</Subtitle>
 
           {/* 이미지 선택 영역 */}
-          <ImageBox onClick={openGallery}>
+          <ImageBox onClick={submitted ? undefined : openGallery} style={{ cursor: submitted ? 'default' : 'pointer' }}>
             {selectedImage ? (
-                <SelectedImg src={selectedImage} alt="선택된 인증 사진" />
+                <>
+                  <SelectedImg src={selectedImage} alt="선택된 인증 사진" />
+                  {submitted && (
+                      <div style={{
+                        position: 'absolute', inset: 0,
+                        background: 'rgba(0,0,0,0.35)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        flexDirection: 'column', gap: 10,
+                      }}>
+                        <div style={{
+                          background: 'rgba(255,255,255,0.92)',
+                          borderRadius: 40, padding: '10px 22px',
+                          fontSize: 15, fontWeight: 800, color: '#2E7D32',
+                          display: 'flex', alignItems: 'center', gap: 8,
+                        }}>
+                          <span>⏳</span> 인증 검토 중
+                        </div>
+                      </div>
+                  )}
+                </>
             ) : (
                 <Placeholder>
                   <DiagLine />
@@ -244,21 +270,29 @@ export default function Authorize({ onBack, onSubmit }) {
             )}
           </ImageBox>
 
-          {/* 최근 항목 / 선택 버튼 */}
-          <Row>
-            <RecentBtn onClick={openGallery}>최근 항목 ›</RecentBtn>
-            <SelectBtn onClick={openGallery}>
-              <span style={{ fontSize: 15 }}>⊞</span>
-              선택
-            </SelectBtn>
-          </Row>
+          {/* 최근 항목 / 선택 버튼 — 제출 전에만 표시 */}
+          {!submitted && (
+              <Row>
+                <RecentBtn onClick={openGallery}>최근 항목 ›</RecentBtn>
+                <SelectBtn onClick={openGallery}>
+                  <span style={{ fontSize: 15 }}>⊞</span>
+                  선택
+                </SelectBtn>
+              </Row>
+          )}
         </Body>
 
         {/* ── 작성 완료 ── */}
         <Footer>
-          <SubmitBtn disabled={!selectedImage} onClick={handleSubmit}>
-            작성 완료
-          </SubmitBtn>
+          {submitted ? (
+              <SubmitBtn onClick={handleChangePhoto}>
+                사진 변경
+              </SubmitBtn>
+          ) : (
+              <SubmitBtn disabled={!selectedImage} onClick={handleSubmit}>
+                작성 완료
+              </SubmitBtn>
+          )}
         </Footer>
 
         {/* 숨긴 파일 input */}
