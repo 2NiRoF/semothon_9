@@ -2,7 +2,11 @@ import React, { useState, useEffect } from 'react';
 import MatchingRoom from './MatchingRoom';
 import styled, { keyframes } from '@emotion/styled';
 import { keyframes as kf } from '@emotion/react';
-import { getMissions, createMatch, getMyActiveMatch, CURRENT_USER_ID } from '../api';
+import {
+    getMissions, createMatch, getMyActiveMatch,
+    saveActiveMatch, loadActiveMatch, clearActiveMatch,
+    CURRENT_USER_ID,
+} from '../api';
 
 /* ─── 활동별 SVG 아이콘 ─── */
 const ICONS = {
@@ -306,23 +310,60 @@ export default function Matching() {
     const [roomItem, setRoomItem]           = useState(null);
     const [currentMatchId, setCurrentMatchId] = useState(null);
 
-    // 마운트 시 활성 매치 확인 — 있으면 바로 매칭룸으로 진입
-    // initializing이 true인 동안은 미션 목록을 렌더링하지 않아 깜빡임 방지
+    // 마운트 시 활성 매치 복원
+    // 1단계: sessionStorage에서 즉시 복원 (F5 대응)
+    // 2단계: 서버에서 교차 검증 (서버 재시작으로 매치가 삭제됐으면 캐시 제거)
     useEffect(() => {
-        getMyActiveMatch()
-            .then(match => {
-                if (!match) return;
-                setRoomItem({
-                    id: match.mission_id,
-                    name: match.mission_title,
-                    type: match.mission_type,
-                    icon: TYPE_TO_ICON[match.mission_type] || null,
-                    matchId: match.id,
-                });
-                setJoinedIds(prev => [...prev, match.mission_id]);
-            })
-            .catch(() => {})
-            .finally(() => setInitializing(false));
+        const cached = loadActiveMatch();
+
+        if (cached) {
+            // sessionStorage 캐시로 즉시 UI 복원
+            setCurrentMatchId(cached.matchId);
+            setJoinedIds(prev => [...prev, cached.missionId]);
+            setRoomItem({
+                id: cached.missionId,
+                name: cached.missionName,
+                type: cached.missionType,
+                icon: TYPE_TO_ICON[cached.missionType] || null,
+                matchId: cached.matchId,
+            });
+            setInitializing(false);
+
+            // 백그라운드에서 서버 검증: 매치가 사라졌으면 캐시 제거 후 초기화
+            getMyActiveMatch()
+                .then(match => {
+                    if (!match) {
+                        clearActiveMatch();
+                        setCurrentMatchId(null);
+                        setJoinedIds([]);
+                        setRoomItem(null);
+                    }
+                })
+                .catch(() => {}); // 서버 오류 시 캐시 유지
+        } else {
+            // 캐시 없으면 서버에서 조회
+            getMyActiveMatch()
+                .then(match => {
+                    if (!match) return;
+                    setCurrentMatchId(match.id);
+                    setJoinedIds(prev => [...prev, match.mission_id]);
+                    setRoomItem({
+                        id: match.mission_id,
+                        name: match.mission_title,
+                        type: match.mission_type,
+                        icon: TYPE_TO_ICON[match.mission_type] || null,
+                        matchId: match.id,
+                    });
+                    saveActiveMatch({
+                        matchId: match.id,
+                        missionId: match.mission_id,
+                        missionName: match.mission_title,
+                        missionType: match.mission_type,
+                    });
+                })
+                .catch(() => {})
+                .finally(() => setInitializing(false));
+        }
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // 미션 목록 API 호출 + 5초마다 참여 인원 수 갱신
@@ -358,20 +399,29 @@ export default function Matching() {
             setCurrentMatchId(match.id);
             setMatchDone(true);
         } catch (e) {
-            // 이미 참여 중이면 에러 대신 해당 매치로 바로 진입
-            if (e.message === '이미 이 미션에 참여 중입니다.') {
-                const active = await getMyActiveMatch().catch(() => null);
-                if (active) {
-                    setMatchingItem(null);
-                    setRoomItem({
-                        id: active.mission_id,
-                        name: active.mission_title,
-                        type: active.mission_type,
-                        icon: TYPE_TO_ICON[active.mission_type] || null,
-                        matchId: active.id,
-                    });
-                    return;
-                }
+            // 참여 실패 시 활성 매치가 있으면 해당 매치로 바로 진입
+            const active = await getMyActiveMatch().catch(() => null);
+            if (active) {
+                const roomData = {
+                    id: active.mission_id,
+                    name: active.mission_title,
+                    type: active.mission_type,
+                    icon: TYPE_TO_ICON[active.mission_type] || null,
+                    matchId: active.id,
+                };
+                setCurrentMatchId(active.id);
+                setJoinedIds(prev =>
+                    prev.includes(active.mission_id) ? prev : [...prev, active.mission_id]
+                );
+                saveActiveMatch({
+                    matchId: active.id,
+                    missionId: active.mission_id,
+                    missionName: active.mission_title,
+                    missionType: active.mission_type,
+                });
+                setMatchingItem(null);
+                setRoomItem(roomData);
+                return;
             }
             setMatchingItem(null);
         }
@@ -386,6 +436,12 @@ export default function Matching() {
     const handleConfirm = () => {
         setJoinedIds(prev => [...prev, matchingItem.id]);
         setRoomItem({ ...matchingItem, matchId: currentMatchId });
+        saveActiveMatch({
+            matchId: currentMatchId,
+            missionId: matchingItem.id,
+            missionName: matchingItem.name,
+            missionType: matchingItem.type,
+        });
         setMatchingItem(null);
         setMatchDone(false);
     };
@@ -398,6 +454,8 @@ export default function Matching() {
                 activity={roomItem}
                 onBack={() => setRoomItem(null)}
                 onEnd={() => {
+                    clearActiveMatch();
+                    setCurrentMatchId(null);
                     setJoinedIds(prev => prev.filter(id => id !== roomItem.id));
                     setRoomItem(null);
                 }}
@@ -484,7 +542,7 @@ export default function Matching() {
                                         joined={joinedIds.includes(challenge.id)}
                                         onClick={() => {
                                             if (joinedIds.includes(challenge.id)) {
-                                                setRoomItem(challenges.find(c => c.id === challenge.id));
+                                                setRoomItem({ ...challenge, matchId: currentMatchId });
                                             } else {
                                                 handleJoin(challenge);
                                             }

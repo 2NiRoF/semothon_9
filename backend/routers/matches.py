@@ -43,19 +43,18 @@ def create_or_join_match(
     if not mission:
         raise HTTPException(status_code=404, detail="미션을 찾을 수 없습니다.")
 
-    # 이미 참여 중인지 확인
+    # 이미 어떤 미션이든 참여 중이면 차단 (유저는 한 번에 하나의 매치만 참여 가능)
     already = (
         db.query(MatchParticipant)
         .join(Match)
         .filter(
-            Match.mission_id == body.mission_id,
             Match.status.in_(["waiting", "in_progress"]),
             MatchParticipant.user_id == user_id,
         )
         .first()
     )
     if already:
-        raise HTTPException(status_code=400, detail="이미 이 미션에 참여 중입니다.")
+        raise HTTPException(status_code=400, detail="이미 참여 중인 미션이 있습니다. 먼저 종료해주세요.")
 
     # 자리 있는 매치 찾기
     available_match = None

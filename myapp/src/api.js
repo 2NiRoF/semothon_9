@@ -64,3 +64,20 @@ export async function leaveMatch(matchId) {
   });
   if (!res.ok) throw new Error('매칭 탈퇴에 실패했습니다.');
 }
+
+// ── sessionStorage: 참여 중인 매치 로컬 캐시 ──────────────
+// F5 새로고침 후에도 즉시 복원하기 위해 사용
+const MATCH_CACHE_KEY = `active_match_user_${CURRENT_USER_ID}`;
+
+export function saveActiveMatch(data) {
+  sessionStorage.setItem(MATCH_CACHE_KEY, JSON.stringify(data));
+}
+
+export function loadActiveMatch() {
+  const raw = sessionStorage.getItem(MATCH_CACHE_KEY);
+  return raw ? JSON.parse(raw) : null;
+}
+
+export function clearActiveMatch() {
+  sessionStorage.removeItem(MATCH_CACHE_KEY);
+}

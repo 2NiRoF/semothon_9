@@ -4,8 +4,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from database import engine, Base
-from models import Mission  # noqa: F401 — 테이블 생성에 필요
+from sqlalchemy import delete
+from database import engine, Base, SessionLocal
+from models import Mission, Match, MatchParticipant  # noqa: F401 — 테이블 생성에 필요
 from routers import auth, users, missions, matches, posts
 from seed import seed_missions, seed_test_user
 
@@ -15,6 +16,16 @@ async def lifespan(app: FastAPI):
     # 서버 시작 시
     os.makedirs("uploads", exist_ok=True)   # 업로드 폴더 자동 생성
     Base.metadata.create_all(bind=engine)   # DB 테이블 생성
+
+    # 서버 재시작 시 매치 데이터 초기화 (참여 인원 0명으로 리셋)
+    db = SessionLocal()
+    try:
+        db.execute(delete(MatchParticipant))
+        db.execute(delete(Match))
+        db.commit()
+    finally:
+        db.close()
+
     seed_missions()                          # 초기 미션 데이터 삽입
     seed_test_user()                         # 테스트 유저 생성 (auth 구현 전 임시)
     yield
