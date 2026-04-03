@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 
 from database import Base
 
@@ -9,27 +10,26 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    email = Column(String, unique=True, nullable=False)
-    level = Column(String, nullable=False, default="초보")
-    point = Column(Integer, nullable=False, default=0)
-    streak = Column(Integer, nullable=False, default=0)
-    badge = Column(String, nullable=False, default="🌱")
-    join_date = Column(String, nullable=False, default="")
+    name = Column(String, default="새 사용자")
+    email = Column(String, unique=True, index=True, nullable=True)
+    profile_image = Column(String, default="default.png")
+    
+    # 포인트 및 게임 데이터
+    level = Column(Integer, default=1)
+    points = Column(Integer, default=0)
+    streak = Column(Integer, default=0)
+    badge = Column(String, nullable=True)
+    
+    # 가입일 (서버 시간 자동 기록)
+    join_date = Column(DateTime(timezone=True), server_default=func.now())
 
-    badges = relationship("Badge", back_populates="user")
-
-
-class Badge(Base):
-    __tablename__ = "badges"
+class Record(Base):
+    __tablename__ = "records"
 
     id = Column(Integer, primary_key=True, index=True)
-    emoji = Column(String, nullable=False)
-    label = Column(String, nullable=False)
-    earned = Column(Boolean, nullable=False, default=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-
-    user = relationship("User", back_populates="badges")
+    user_id = Column(Integer, ForeignKey("users.id"))
+    content = Column(String)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class Activity(Base):
